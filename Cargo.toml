@@ -1,0 +1,27 @@
+[package]
+name = "odjkbar"
+version = "0.1.0"
+edition = "2021"
+authors = ["odjk"]
+
+[lib]
+name = "odjkbar_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "odjkbar"
+path = "src/main.rs"
+
+# Без зависимостей: ни libc, ни std-крейтов, ни ab_glyph, ни libm.
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[workspace]
