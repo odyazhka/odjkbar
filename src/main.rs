@@ -27,8 +27,6 @@ use sys::{die, lossy, PollFd, POLLERR, POLLHUP, POLLIN};
 
 const BAT: &str = "/sys/class/power_supply/BAT0";
 const WM_NAME: u32 = 39;
-const ATOM: u32 = 4;
-const CARDINAL: u32 = 6;
 const WINDOW: u32 = 33;
 const EV_EXPOSE: u32 = 0x8000;
 const EV_BUTTON: u32 = 0x0004;
@@ -119,6 +117,7 @@ struct Atoms {
     wm_type: u32,
     dock: u32,
     strut: u32,
+    strut_old: u32,
 }
 
 /// Соединение с X-сервером.
@@ -695,11 +694,11 @@ fn create_bars(x: &mut X, depth: u8, visual: u32, cfg: &Config, mons: &[Mon], bg
         let id = x.id();
         let attrs = WinAttrs { background_pixel: Some(bg), event_mask: Some(EV_EXPOSE | EV_BUTTON | EV_MOTION), cursor: None };
         x.send(&x::create_window(depth, id, x.root, m.x, m.y, m.w, h as u16, 0, 1, visual, &attrs));
-        // док и верхний отступ
-        x.send(&x::change_property(0, id, at.wm_type, ATOM, 32, &u32s(&[at.dock])));
-        let x0 = m.x as u32;
-        let x1 = (m.x as i32 + m.w as i32 - 1) as u32;
-        x.send(&x::change_property(0, id, at.strut, CARDINAL, 32, &u32s(&[0, 0, h, 0, 0, 0, 0, 0, x0, x1, 0, 0])));
+        // док и верхний отступ равный высоте бара (до map_window)
+        let dock = x::DockAtoms { strut: at.strut_old, strut_partial: at.strut, window_type: at.wm_type, type_dock: at.dock };
+        for req in x::reserve_top(id, &dock, h as u32, m.x as i32, m.y as i32, m.w as u32) {
+            x.send(&req);
+        }
         let gc = x.id();
         x.send(&x::create_gc(gc, id, None, None));
         x.send(&x::map_window(id));
@@ -722,10 +721,6 @@ fn create_bars(x: &mut X, depth: u8, visual: u32, cfg: &Config, mons: &[Mon], bg
         });
     }
     bars
-}
-
-fn u32s(v: &[u32]) -> Vec<u8> {
-    v.iter().flat_map(|x| x.to_le_bytes()).collect()
 }
 
 /// WM_NAME: годится только тип STRING (Latin-1). COMPOUND_TEXT и прочее с ESC-последовательностями
@@ -1003,6 +998,7 @@ fn real_main() {
         wm_type: x.intern("_NET_WM_WINDOW_TYPE"),
         dock: x.intern("_NET_WM_WINDOW_TYPE_DOCK"),
         strut: x.intern("_NET_WM_STRUT_PARTIAL"),
+        strut_old: x.intern("_NET_WM_STRUT"),
     };
     let (xkb, xkb_ev) = x.extension("XKEYBOARD").unwrap_or((0, 0));
     let mut layout = 0usize;
