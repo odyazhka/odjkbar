@@ -1,0 +1,59 @@
+[colors]
+background = "#000000"
+foreground = "#ffffff"
+primary = "#fc00ef"
+alert = "#f53c3c"
+charging = "#26a65b"
+
+# height в pt, fonts — fc-match-паттерны (size в pt)
+[bar.default]
+height = 24
+left = ["launcher", "sep1", "xwindow"]
+center = ["sep2", "time", "sep", "date", "sep3"]
+right = ["tray", "sep", "stol", "sep", "bg", "sep", "xkeyboard", "sep", "battery", "sep", "wifi", "sep", "bg", "sep", "gromkost", "sep", "power"]
+fonts = ["/usr/share/fonts/X11/TTF/Terminus-averin-bold.ttf:size=18", "/usr/share/fonts/NerdFonts/ttf/symbols/SymbolsNerdFont-Regular.ttf:size=12"]
+
+[bar.HDMI-1]
+height = 24
+left = ["launcher", "sep1", "xwindow"]
+center = ["sep2", "time", "sep", "date", "sep3"]
+right = ["sep", "stol", "sep", "xkeyboard", "sep", "wifi", "sep", "bg", "sep", "gromkost", "sep", "power"]
+fonts = ["/usr/share/fonts/X11/TTF/Terminus-averin-bold.ttf:size=18", "/usr/share/fonts/NerdFonts/ttf/symbols/SymbolsNerdFont-Regular.ttf:size=12"]
+
+[bar.0]
+
+[modules.launcher]
+text = ""
+click = "rofi -show drun -show-icons"
+
+[modules.xwindow]
+max_len = 40
+
+[modules.sep]
+width = 3
+color = "#00D307"
+
+[modules.xkeyboard]
+layouts = ["us;ENG", "ru;РУС"]
+
+[modules.wifi]
+text = ""
+click = "/usr/local/bin/odjk-wifi"
+
+[modules.bg]
+text = ""
+click = "/usr/local/bin/bg"
+
+[modules.gromkost]
+text = ""
+click = "pavucontrol"
+
+[modules.kolor]
+text = ""
+click = "~/.config/polybar/scripts/kolor"
+
+[modules.power]
+text = "󰤆"
+click = "~/.config/rofi/rofi-power.sh"
+
+
