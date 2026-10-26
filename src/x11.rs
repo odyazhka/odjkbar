@@ -1,7 +1,7 @@
 //! Кодирование запросов протокола X11 (little-endian). Без std.
 //! Каждая функция возвращает готовые байты запроса. Ответы и события разбираются отдельно.
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 fn put16(b: &mut Vec<u8>, v: u16) {
     b.extend_from_slice(&v.to_le_bytes());
@@ -440,4 +440,39 @@ pub fn get_atom_name(atom: u32) -> Vec<u8> {
     let mut b = start(17, 0);
     put32(&mut b, atom);
     finish(b)
+}
+
+/// Предопределённые типы свойств X11 (константы протокола, интернировать не нужно).
+pub const ATOM_TY: u32 = 4;
+pub const CARDINAL_TY: u32 = 6;
+
+/// Атомы, которые бинарь интернирует один раз через `intern_atom`.
+pub struct DockAtoms {
+    pub strut: u32,
+    pub strut_partial: u32,
+    pub window_type: u32,
+    pub type_dock: u32,
+}
+
+fn le_u32s(v: &[u32]) -> Vec<u8> {
+    v.iter().flat_map(|x| x.to_le_bytes()).collect()
+}
+
+/// Говорит WM оставить сверху полосу высотой `bar_h` на мониторе (mon_x, mon_y, mon_w).
+/// Координаты абсолютные, относительно всего экрана.
+/// Возвращает запросы ChangeProperty, их нужно отправить до MapWindow.
+pub fn reserve_top(window: u32, a: &DockAtoms, bar_h: u32, mon_x: i32, mon_y: i32, mon_w: u32) -> Vec<Vec<u8>> {
+    let x0 = mon_x.max(0) as u32;
+    let x1 = x0.saturating_add(mon_w).saturating_sub(1);
+    let top = (mon_y.max(0) as u32).saturating_add(bar_h);
+    // порядок: left, right, top, bottom, left_start_y, left_end_y, right_start_y, right_end_y,
+    // top_start_x, top_end_x, bottom_start_x, bottom_end_x
+    let partial = [0, 0, top, 0, 0, 0, 0, 0, x0, x1, 0, 0];
+    // старый вариант для WM, которые не знают STRUT_PARTIAL
+    let strut = [0, 0, top, 0];
+    vec![
+        change_property(0, window, a.window_type, ATOM_TY, 32, &le_u32s(&[a.type_dock])),
+        change_property(0, window, a.strut_partial, CARDINAL_TY, 32, &le_u32s(&partial)),
+        change_property(0, window, a.strut, CARDINAL_TY, 32, &le_u32s(&strut)),
+    ]
 }
