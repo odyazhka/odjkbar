@@ -10,7 +10,7 @@ charging = "#26a65b"
 height = 24
 left = ["launcher", "sep1", "xwindow"]
 center = ["sep2", "time", "sep", "date", "sep3"]
-right = ["tray", "sep", "stol", "sep", "bg", "sep", "xkeyboard", "sep", "battery", "sep", "wifi", "sep", "bg", "sep", "gromkost", "sep", "power"]
+right = ["tray", "sep", "stol", "sep", "xkeyboard", "sep", "battery", "sep", "wifi", "sep", "bg", "sep", "gromkost", "sep", "power"]
 fonts = ["/usr/share/fonts/X11/TTF/Terminus-averin-bold.ttf:size=18", "/usr/share/fonts/NerdFonts/ttf/symbols/SymbolsNerdFont-Regular.ttf:size=12"]
 
 [bar.HDMI-1]
