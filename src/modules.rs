@@ -30,7 +30,7 @@ pub enum Action {
 }
 
 pub enum Seg {
-    /// flex: ширина подгоняется под свободное место (название окна), см. layout в бинаре
+    /// flex -- гибкое место (название окна): при нехватке ширины обрезается многоточием
     Text { s: String, fg: u32, act: Action, flex: bool },
     /// рабочий стол: звёздочка (если выбран) в ведущем слоте, затем название
     Desk { name: String, star: bool, fg: u32, act: Action, last: bool },
@@ -81,15 +81,13 @@ pub fn build(name: &str, c: &Ctx) -> Vec<Seg> {
             Action::Cmd(m.click.unwrap_or_else(|| "rofi -show drun -show-icons".to_string())),
         ),
         "xwindow" => {
-            // название занимает всё свободное место и обрезается в раскладке (flex);
-            // max_len, если задан в конфиге, только ограничивает сверху
-            let s = match m.max_len {
-                Some(max) if c.st.title.chars().count() > max => {
-                    let mut s: String = c.st.title.chars().take(max).collect();
-                    s.push('…');
-                    s
-                }
-                _ => c.st.title.clone(),
+            let max = m.max_len.unwrap_or(44);
+            let s = if c.st.title.chars().count() > max {
+                let mut s: String = c.st.title.chars().take(max).collect();
+                s.push('…');
+                s
+            } else {
+                c.st.title.clone()
             };
             vec![Seg::Text {
                 s,

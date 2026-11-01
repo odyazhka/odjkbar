@@ -1,7 +1,7 @@
 //! Кодирование запросов протокола X11 (little-endian). Без std.
 //! Каждая функция возвращает готовые байты запроса. Ответы и события разбираются отдельно.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 fn put16(b: &mut Vec<u8>, v: u16) {
     b.extend_from_slice(&v.to_le_bytes());
@@ -442,37 +442,33 @@ pub fn get_atom_name(atom: u32) -> Vec<u8> {
     finish(b)
 }
 
-/// Предопределённые типы свойств X11 (константы протокола, интернировать не нужно).
-pub const ATOM_TY: u32 = 4;
-pub const CARDINAL_TY: u32 = 6;
-
-/// Атомы, которые бинарь интернирует один раз через `intern_atom`.
+/// Атомы, нужные, чтобы объявить окно доком и зарезервировать место.
+#[derive(Clone, Copy)]
 pub struct DockAtoms {
+    /// _NET_WM_STRUT
     pub strut: u32,
+    /// _NET_WM_STRUT_PARTIAL
     pub strut_partial: u32,
+    /// _NET_WM_WINDOW_TYPE
     pub window_type: u32,
+    /// _NET_WM_WINDOW_TYPE_DOCK
     pub type_dock: u32,
 }
 
-fn le_u32s(v: &[u32]) -> Vec<u8> {
-    v.iter().flat_map(|x| x.to_le_bytes()).collect()
-}
-
-/// Говорит WM оставить сверху полосу высотой `bar_h` на мониторе (mon_x, mon_y, mon_w).
-/// Координаты абсолютные, относительно всего экрана.
-/// Возвращает запросы ChangeProperty, их нужно отправить до MapWindow.
-pub fn reserve_top(window: u32, a: &DockAtoms, bar_h: u32, mon_x: i32, mon_y: i32, mon_w: u32) -> Vec<Vec<u8>> {
-    let x0 = mon_x.max(0) as u32;
-    let x1 = x0.saturating_add(mon_w).saturating_sub(1);
-    let top = (mon_y.max(0) as u32).saturating_add(bar_h);
-    // порядок: left, right, top, bottom, left_start_y, left_end_y, right_start_y, right_end_y,
-    // top_start_x, top_end_x, bottom_start_x, bottom_end_x
-    let partial = [0, 0, top, 0, 0, 0, 0, 0, x0, x1, 0, 0];
-    // старый вариант для WM, которые не знают STRUT_PARTIAL
-    let strut = [0, 0, top, 0];
-    vec![
-        change_property(0, window, a.window_type, ATOM_TY, 32, &le_u32s(&[a.type_dock])),
-        change_property(0, window, a.strut_partial, CARDINAL_TY, 32, &le_u32s(&partial)),
-        change_property(0, window, a.strut, CARDINAL_TY, 32, &le_u32s(&strut)),
+/// Запросы, делающие окно доком и резервирующие сверху `height` пикселей на мониторе
+/// с левым краем `x`, верхним `y` и шириной `width`. Отправлять до MapWindow.
+pub fn reserve_top(win: u32, a: &DockAtoms, height: u32, x: i32, y: i32, width: u32) -> Vec<Vec<u8>> {
+    const ATOM: u32 = 4;
+    const CARDINAL: u32 = 6;
+    let words = |v: &[u32]| -> Vec<u8> { v.iter().flat_map(|n| n.to_le_bytes()).collect() };
+    // отступ считается от верхнего края экрана, а не монитора
+    let top = y.max(0) as u32 + height;
+    let x0 = x.max(0) as u32;
+    let x1 = x0 + width.saturating_sub(1);
+    alloc::vec![
+        change_property(0, win, a.window_type, ATOM, 32, &words(&[a.type_dock])),
+        change_property(0, win, a.strut, CARDINAL, 32, &words(&[0, 0, top, 0])),
+        // left, right, top, bottom, затем start/end для каждой стороны
+        change_property(0, win, a.strut_partial, CARDINAL, 32, &words(&[0, 0, top, 0, 0, 0, 0, 0, x0, x1, 0, 0])),
     ]
 }

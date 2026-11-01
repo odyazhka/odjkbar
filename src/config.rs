@@ -479,12 +479,15 @@ impl Config {
         }
     }
 
-    /// Бар для монитора: секция [bar.ИМЯ] (например [bar.HDMI-1]) с наложением на [bar.default].
-    /// Если имя монитора неизвестно (нет RandR), используется секция [bar.ИНДЕКС].
-    pub fn bar(&self, mon: &str, idx: usize) -> Bar {
+    /// Бар для монитора: секция [bar.<имя монитора>], иначе [bar.<индекс>], поверх [bar.default].
+    pub fn bar(&self, name: &str, idx: usize) -> Bar {
         let d = self.bar.get("default").cloned().unwrap_or_default();
-        let key = if mon.is_empty() { idx.to_string() } else { mon.to_string() };
-        let o = self.bar.get(&key).cloned().unwrap_or_default();
+        let o = self
+            .bar
+            .get(name)
+            .or_else(|| self.bar.get(&idx.to_string()))
+            .cloned()
+            .unwrap_or_default();
         Bar {
             height: o.height.or(d.height).unwrap_or(24),
             fonts: o.fonts.or(d.fonts).unwrap_or_default(),

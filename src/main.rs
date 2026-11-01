@@ -416,13 +416,16 @@ fn draw_str(out: &mut Vec<Prim>, t: &mut Text, x: i32, h: i32, s: &str, color: u
     }
 }
 
-fn place(out: &mut Vec<Prim>, t: &mut Text, segs: &[Seg], mut x: i32, h: i32, hits: &mut Vec<Hit>) {
+/// pad -- добавка к ширине гибкого места (название окна): текст остаётся слева,
+/// пустота справа от него нужна, чтобы край группы лёг ровно на разделитель соседа.
+fn place(out: &mut Vec<Prim>, t: &mut Text, segs: &[Seg], mut x: i32, h: i32, pad: i32, hits: &mut Vec<Hit>) {
     for s in segs {
         match s {
-            Seg::Text { s, fg, act, .. } => {
+            Seg::Text { s, fg, act, flex } => {
                 let tw = t.width(s);
                 let cw = cell_w(t, s, h);
                 draw_str(out, t, x + (cw - tw) / 2, h, s, *fg);
+                let cw = cw + if *flex { pad } else { 0 };
                 if !matches!(act, Action::None) {
                     hits.push(Hit { x0: x, x1: x + cw, act: act.clone() });
                 }
@@ -497,11 +500,59 @@ fn fit(t: &mut Text, s: &str, budget: i32, h: i32) -> String {
     String::new()
 }
 
+/// Порог слипания: если между разделителями на стыке групп меньше STICK пикселей,
+/// они совпадают в одну линию (как при отрицательном зазоре).
+const STICK: i32 = 30;
+
+/// Зазор на стыке двух групп, если на нём стоят два разделителя (иначе None).
+fn sep_gap(a: &[Seg], b: &[Seg]) -> Option<i32> {
+    match (a.last(), b.first()) {
+        (Some(Seg::Sep { .. }), Some(Seg::Sep { .. })) => Some(gap_between(a, b)),
+        _ => None,
+    }
+}
+
+fn has_flex(g: &[Seg]) -> bool {
+    g.iter().any(|s| matches!(s, Seg::Text { flex: true, .. }))
+}
+
+/// Обрезает гибкое место группы (название окна) так, чтобы вся группа влезла в `target`.
+/// Возвращает новую ширину группы.
+fn shrink_flex(t: &mut Text, g: &mut [Seg], target: i32, h: i32) -> i32 {
+    let w = seg_width(t, g, h);
+    if w <= target {
+        return w;
+    }
+    for seg in g.iter_mut() {
+        if let Seg::Text { s, flex: true, .. } = seg {
+            let cur = cell_w(t, s.as_str(), h);
+            let new = fit(t, s.as_str(), (cur - (w - target)).max(0), h);
+            *s = new;
+            break;
+        }
+    }
+    seg_width(t, g, h)
+}
+
+/// Результат раскладки: x начала каждой группы и добавки к гибкому месту слева и справа.
+struct Lay {
+    lx: i32,
+    cx: i32,
+    rx: i32,
+    lpad: i32,
+    rpad: i32,
+}
+
 /// Раскладка трёх групп без наложения: слева, по центру, справа.
-/// Если места не хватает, сначала сужается название окна (flex), затем убираются промежутки.
-/// Центр стоит по середине, но не заходит ни на левую, ни на правую группу, поэтому при
-/// нехватке места он сдвигается к левому краю. Возвращает x начала каждой группы.
-fn layout(t: &mut Text, left: &mut [Seg], center: &mut [Seg], right: &mut [Seg], w: i32, h: i32) -> (i32, i32, i32) {
+///
+/// Центр (часы) без гибкого места всегда стоит строго по середине бара и не двигается
+/// от длины названия окна: название (flex) обрезается многоточием о границу центра.
+/// Если между разделителями на стыке остаётся меньше STICK пикселей, гибкое место
+/// добивается пустотой так, что разделители совпадают в одну линию, а часы стоят на месте.
+///
+/// Если центра нет или название лежит в самом центре, работает запасной порядок:
+/// сужается название, затем убираются зазоры, центр сдвигается, чтобы не наезжать на соседей.
+fn layout(t: &mut Text, left: &mut [Seg], center: &mut [Seg], right: &mut [Seg], w: i32, h: i32) -> Lay {
     let left_off = if matches!(left.first(), Some(Seg::Sep { .. })) { -modules::MARGIN } else { 0 };
     let ne = [!left.is_empty(), !center.is_empty(), !right.is_empty()];
     // промежутки между соседними непустыми группами
@@ -515,9 +566,63 @@ fn layout(t: &mut Text, left: &mut [Seg], center: &mut [Seg], right: &mut [Seg],
     } else {
         (0, 0)
     };
+    let lx = left_off;
     let mut ws = group_widths(t, [&*left, &*center, &*right], h);
-    let mut excess = needed(ws, gl, gr) - w;
 
+    if ne[1] && !has_flex(center) {
+        let cw = ws[1];
+        let mut cx = (w - cw) / 2;
+        let (mut lpad, mut rpad) = (0, 0);
+
+        // справа нет гибкого места: слипание двигает центр (от названия окна это не зависит)
+        if ne[2] && !has_flex(right) {
+            if let Some(m) = sep_gap(center, right) {
+                if (w - ws[2]) - (cx + cw) < STICK {
+                    cx = w - ws[2] - m - cw;
+                }
+            }
+        }
+        // слева: название обрезается о центр; при слипании край группы ложится на разделитель
+        if ne[0] && has_flex(left) {
+            let stuck = sep_gap(left, center).is_some() && cx - (lx + ws[0]) < STICK;
+            let target = cx - lx - gl;
+            ws[0] = shrink_flex(t, left, target, h);
+            if stuck {
+                lpad = (target - ws[0]).max(0);
+                ws[0] += lpad;
+            }
+        }
+        // справа то же, если гибкое место там
+        if ne[2] && has_flex(right) {
+            let stuck = sep_gap(center, right).is_some() && (w - ws[2]) - (cx + cw) < STICK;
+            let target = w - (cx + cw) - gr;
+            ws[2] = shrink_flex(t, right, target, h);
+            if stuck {
+                rpad = (target - ws[2]).max(0);
+                ws[2] += rpad;
+            }
+        }
+        // не хватает места даже без названия: обычные зазоры уходят
+        if needed(ws, gl, gr) > w {
+            gl = gl.min(0);
+            gr = gr.min(0);
+        }
+        let rx = w - ws[2];
+        let min_c = if ne[0] { lx + ws[0] + gl } else { 0 };
+        let max_c = if ne[2] { rx - gr - cw } else { w - cw };
+        cx = cx.min(max_c).max(min_c);
+        // слева нет гибкого места: слипание двигает центр
+        if ne[0] && !has_flex(left) {
+            if let Some(m) = sep_gap(left, center) {
+                if cx - (lx + ws[0]) < STICK {
+                    cx = lx + ws[0] + m;
+                }
+            }
+        }
+        return Lay { lx, cx, rx, lpad, rpad };
+    }
+
+    let mut excess = needed(ws, gl, gr) - w;
     if excess > 0 {
         // сужаем первое гибкое место (название окна) на недостающую величину
         let mut done = false;
@@ -544,13 +649,37 @@ fn layout(t: &mut Text, left: &mut [Seg], center: &mut [Seg], right: &mut [Seg],
     }
 
     let [lw, cw, rw] = ws;
-    let lx = left_off;
-    let rx = w - rw;
+    let mut rx = w - rw;
     let ideal = (w - cw) / 2;
     let min_c = if ne[0] { lx + lw + gl } else { 0 };
     let max_c = if ne[2] { rx - gr - cw } else { w - cw };
-    let cx = ideal.min(max_c).max(min_c);
-    (lx, cx, rx)
+    let mut cx = ideal.min(max_c).max(min_c);
+
+    if ne[1] {
+        let mut stuck_left = false;
+        if ne[0] {
+            if let Some(m) = sep_gap(left, center) {
+                if cx - (lx + lw) < STICK {
+                    cx = lx + lw + m;
+                    stuck_left = true;
+                }
+            }
+        }
+        if ne[2] && !stuck_left {
+            if let Some(m) = sep_gap(center, right) {
+                if rx - (cx + cw) < STICK {
+                    cx = rx - m - cw;
+                }
+            }
+        }
+    } else if ne[0] && ne[2] {
+        if let Some(m) = sep_gap(left, right) {
+            if rx - (lx + lw) < STICK {
+                rx = lx + lw + m;
+            }
+        }
+    }
+    Lay { lx, cx, rx, lpad: 0, rpad: 0 }
 }
 
 fn draw_bar(x: &mut X, b: &mut BarWin, look: &Look, st: &State, cfg: &Config) {
@@ -574,12 +703,12 @@ fn draw_bar(x: &mut X, b: &mut BarWin, look: &Look, st: &State, cfg: &Config) {
     let mut center = build(&b.center);
     let mut right = build(&b.right);
 
-    let (lx, cx, rx) = layout(&mut b.text, &mut left, &mut center, &mut right, w, h);
+    let lay = layout(&mut b.text, &mut left, &mut center, &mut right, w, h);
     let mut prims = Vec::new();
     let mut hits = Vec::new();
-    place(&mut prims, &mut b.text, &left, lx, h, &mut hits);
-    place(&mut prims, &mut b.text, &center, cx, h, &mut hits);
-    place(&mut prims, &mut b.text, &right, rx, h, &mut hits);
+    place(&mut prims, &mut b.text, &left, lay.lx, h, lay.lpad, &mut hits);
+    place(&mut prims, &mut b.text, &center, lay.cx, h, 0, &mut hits);
+    place(&mut prims, &mut b.text, &right, lay.rx, h, lay.rpad, &mut hits);
     b.hits = hits;
 
     // полосами: буфер около 16 КБ (≈128 px при высоте 32), данные уходят без копии
@@ -723,11 +852,16 @@ fn create_bars(x: &mut X, depth: u8, visual: u32, cfg: &Config, mons: &[Mon], bg
     bars
 }
 
-/// WM_NAME: годится только тип STRING (Latin-1). COMPOUND_TEXT и прочее с ESC-последовательностями
-/// (ISO-2022) не декодируем: пустая строка лучше мусора.
+/// WM_NAME: тип STRING по стандарту Latin-1, но многие приложения (например XStoreName
+/// с UTF-8 строкой) кладут туда UTF-8. Поэтому сначала пробуем UTF-8, и только если байты
+/// не складываются в валидную строку, читаем как Latin-1. COMPOUND_TEXT и прочее с
+/// ESC-последовательностями (ISO-2022) не декодируем: пустая строка лучше мусора.
 fn wm_name_text(ty: u32, v: &[u8]) -> String {
     if ty == 31 && !v.contains(&0x1b) {
-        v.iter().map(|&b| b as char).collect()
+        match core::str::from_utf8(v) {
+            Ok(s) => s.to_string(),
+            Err(_) => v.iter().map(|&b| b as char).collect(),
+        }
     } else {
         String::new()
     }
